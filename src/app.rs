@@ -67,15 +67,17 @@ enum View {
     Upcoming,
     Projects,
     Eisenhower,
+    Done,
 }
 
 impl View {
-    const ALL: [View; 5] = [
+    const ALL: [View; 6] = [
         View::Inbox,
         View::Today,
         View::Upcoming,
         View::Projects,
         View::Eisenhower,
+        View::Done,
     ];
     fn label(self) -> &'static str {
         match self {
@@ -84,6 +86,7 @@ impl View {
             View::Upcoming => "Próximas",
             View::Projects => "Proyectos",
             View::Eisenhower => "Eisenhower",
+            View::Done => "Completadas",
         }
     }
 }
@@ -253,6 +256,12 @@ impl App {
             View::Projects | View::Eisenhower => {
                 self.tasks.iter().filter(open).cloned().collect()
             }
+            View::Done => self
+                .tasks
+                .iter()
+                .filter(|t| t.status == Status::Done)
+                .cloned()
+                .collect(),
         };
         match self.view {
             View::Today => v.sort_by(|a, b| {
@@ -282,6 +291,8 @@ impl App {
                     .then(a.id.cmp(&b.id))
             }),
             View::Inbox => v.sort_by(|a, b| a.position.cmp(&b.position).then(a.id.cmp(&b.id))),
+            // Completadas: las más recientes primero.
+            View::Done => v.sort_by(|a, b| b.completed_at.cmp(&a.completed_at).then(b.id.cmp(&a.id))),
         }
         v
     }
@@ -295,6 +306,7 @@ impl App {
             egui::Key::Num3,
             egui::Key::Num4,
             egui::Key::Num5,
+            egui::Key::Num6,
         ]
         .into_iter()
         .enumerate()
