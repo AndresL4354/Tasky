@@ -27,11 +27,19 @@ jobs:
 
       - name: Empaquetar
         shell: pwsh
-        run: Copy-Item target/release/tasky.exe "tasky-${{ github.ref_name }}.exe"
+        run: |
+          # .exe suelto (descarga directa) con el nombre de la versión
+          Copy-Item target/release/tasky.exe "tasky-${{ github.ref_name }}.exe"
+          # .zip con el target triple en el nombre y tasky.exe dentro: es lo que
+          # el auto-update in-app (self_update) busca y extrae.
+          Copy-Item target/release/tasky.exe tasky.exe
+          Compress-Archive -Path tasky.exe -DestinationPath tasky-x86_64-pc-windows-msvc.zip -Force
 
       - name: Publicar Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: tasky-*.exe
+          files: |
+            tasky-*.exe
+            tasky-x86_64-pc-windows-msvc.zip
           generate_release_notes: true

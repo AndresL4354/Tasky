@@ -25,6 +25,7 @@ use crate::config::{self, Config};
 use crate::gitlink;
 use crate::sync;
 use crate::tray::Tray;
+use crate::update;
 
 /// Punto de entrada de la UI. Abre la base y arranca el event loop de eframe.
 pub fn run() -> eframe::Result {
@@ -105,6 +106,7 @@ enum Action {
     CheckRepos,
     Sync,
     Pull,
+    CheckUpdate,
     CreateProject(String),
 }
 
@@ -467,6 +469,7 @@ impl App {
                 }
                 Action::Sync => self.start_sync(ctx),
                 Action::Pull => self.start_pull(ctx),
+                Action::CheckUpdate => self.start_update(ctx),
                 Action::CreateProject(name) => {
                     if let Err(e) = self.repo.create_project(NewProject::new(name)) {
                         self.error = Some(e.to_string());
@@ -649,6 +652,21 @@ impl App {
             ctx.request_repaint();
         });
     }
+
+    /// Busca una versión nueva en GitHub Releases y, si la hay, se autoactualiza
+    /// (self_update) en un hilo aparte.
+    fn start_update(&mut self, ctx: &egui::Context) {
+        self.set_sync("Buscando actualizaciones…");
+        let status = self.sync_status.clone();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let msg = update::check_and_update();
+            if let Ok(mut g) = status.lock() {
+                *g = msg;
+            }
+            ctx.request_repaint();
+        });
+    }
 }
 
 impl eframe::App for App {
@@ -825,6 +843,13 @@ impl eframe::App for App {
                             actions.push(Action::Pull);
                         }
                     });
+                    ui.separator();
+                    if ui
+                        .button(format!("Buscar actualizaciones (v{})", update::CURRENT_VERSION))
+                        .clicked()
+                    {
+                        actions.push(Action::CheckUpdate);
+                    }
                     if !sync_msg.is_empty() {
                         ui.weak(&sync_msg);
                     }

@@ -11,6 +11,7 @@ mod config;
 mod gitlink;
 mod sync;
 mod tray;
+mod update;
 
 fn main() -> eframe::Result<()> {
     app::run()

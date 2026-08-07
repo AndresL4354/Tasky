@@ -20,6 +20,8 @@ como fuente de verdad e integración con git para auto-completar tareas desde co
   clave; cuando un commit nuevo la contiene, la tarea se marca hecha.
 - **Config + backups**: tema claro/oscuro y arranque con Windows, persistidos en
   `config.toml`; backup consistente (`VACUUM INTO`) fechado al salir.
+- **Auto-actualización**: *Ajustes → Buscar actualizaciones* consulta GitHub
+  Releases y, si hay versión nueva, descarga y reemplaza el binario.
 
 ## Compilar y ejecutar
 
@@ -61,8 +63,9 @@ Todo vive en `%APPDATA%\Tasky\`: `tasky.db` (base), `config.toml` (ajustes) y
 
 ## Publicar una versión
 
-Al empujar un tag `v*`, GitHub Actions compila el `.exe` de Windows y lo adjunta
-a una Release automáticamente:
+Al empujar un tag `v*`, GitHub Actions compila el `.exe` de Windows y publica una
+Release con el `.exe` suelto (descarga directa) y un `.zip`
+(`tasky-x86_64-pc-windows-msvc.zip`) que usa el auto-update in-app:
 
 ```bash
 git tag v0.1.0 && git push origin v0.1.0
