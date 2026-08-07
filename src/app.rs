@@ -382,16 +382,36 @@ impl App {
                     changed = true;
                 }
                 Action::Delete(id) => {
-                    if let Err(e) = self.repo.delete_task(id) {
-                        self.error = Some(e.to_string());
+                    // Confirmación nativa: borrar es irreversible.
+                    let title = self
+                        .tasks
+                        .iter()
+                        .find(|t| t.id == id)
+                        .map(|t| t.title.clone())
+                        .unwrap_or_default();
+                    let confirmed = matches!(
+                        rfd::MessageDialog::new()
+                            .set_level(rfd::MessageLevel::Warning)
+                            .set_title("Borrar tarea")
+                            .set_description(format!(
+                                "¿Borrar «{title}»?\nEsta acción no se puede deshacer."
+                            ))
+                            .set_buttons(rfd::MessageButtons::YesNo)
+                            .show(),
+                        rfd::MessageDialogResult::Yes
+                    );
+                    if confirmed {
+                        if let Err(e) = self.repo.delete_task(id) {
+                            self.error = Some(e.to_string());
+                        }
+                        if self.editing == Some(id) {
+                            self.editing = None;
+                        }
+                        if self.selected == Some(id) {
+                            self.selected = None;
+                        }
+                        changed = true;
                     }
-                    if self.editing == Some(id) {
-                        self.editing = None;
-                    }
-                    if self.selected == Some(id) {
-                        self.selected = None;
-                    }
-                    changed = true;
                 }
                 Action::StartEdit(id, title) => {
                     self.editing = Some(id);
