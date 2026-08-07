@@ -1,0 +1,31 @@
+[package]
+name = "tasky"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+chrono = { version = "0.4.45", features = ["serde"] }
+eframe = { version = "0.35", default-features = false, features = ["glow", "persistence", "default_fonts"] }
+egui = "0.35"
+git2 = { version = "0.21.0", default-features = false, features = ["vendored-libgit2"] }
+global-hotkey = "0.8.0"
+rusqlite = { version = "0.40.1", features = ["bundled"] }
+rusqlite_migration = "2.6.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+thiserror = "2.0.19"
+tray-icon = "0.24"
+
+# NOTE: dependencias añadidas por fase. F1: núcleo + almacén. F2: UI (eframe/
+# egui, glow, reactivo). F3: tray-icon + global-hotkey (bandeja/hide-to-tray/
+# hotkey). Pendientes: egui_extras (F4), git2 (F6), directories/toml/winreg
+# (F7), tracing (logging). Así no inflamos la compilación antes de tiempo.
+
+# --- Binario pequeño y rápido (Propuesta C, sección 3) ---
+[profile.release]
+opt-level = "z"      # optimiza tamaño (prueba "s" si el rendimiento sufre)
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
