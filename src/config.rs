@@ -28,11 +28,13 @@ pub fn config_path() -> PathBuf {
 pub struct Config {
     pub dark_mode: bool,
     pub start_with_windows: bool,
+    /// Ruta a un repo git local donde exportar/sincronizar las tareas (Fase 6).
+    pub git_repo_path: Option<String>,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self { dark_mode: true, start_with_windows: false }
+        Self { dark_mode: true, start_with_windows: false, git_repo_path: None }
     }
 }
 
@@ -92,11 +94,16 @@ mod tests {
 
     #[test]
     fn config_toml_roundtrip() {
-        let c = Config { dark_mode: false, start_with_windows: true };
+        let c = Config {
+            dark_mode: false,
+            start_with_windows: true,
+            git_repo_path: Some(r"C:\repos\tareas".to_string()),
+        };
         let s = toml::to_string_pretty(&c).unwrap();
         let back: Config = toml::from_str(&s).unwrap();
         assert!(!back.dark_mode);
         assert!(back.start_with_windows);
+        assert_eq!(back.git_repo_path.as_deref(), Some(r"C:\repos\tareas"));
     }
 
     #[test]

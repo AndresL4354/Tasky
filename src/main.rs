@@ -9,6 +9,7 @@
 mod app;
 mod config;
 mod gitlink;
+mod sync;
 mod tray;
 
 fn main() -> eframe::Result<()> {

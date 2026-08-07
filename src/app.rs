@@ -12,6 +12,7 @@
 //! sobre `&mut Ui`, `Context` vía `ui.ctx()`.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
 
 use chrono::{Local, NaiveDate};
 use eframe::egui;
@@ -22,6 +23,7 @@ use tasky::store::{SqliteRepository, TaskRepository};
 
 use crate::config::{self, Config};
 use crate::gitlink;
+use crate::sync;
 use crate::tray::Tray;
 
 /// Punto de entrada de la UI. Abre la base y arranca el event loop de eframe.
@@ -101,6 +103,8 @@ enum Action {
     LinkRepo(i64, String, String),
     UnlinkRepo(i64),
     CheckRepos,
+    Sync,
+    Pull,
     CreateProject(String),
 }
 
@@ -131,6 +135,10 @@ pub struct App {
     last_check_msg: Option<String>,
     config: Config,
     already_quitting: bool,
+    /// Buffer del campo "repo de sincronización" (Fase 6).
+    sync_repo_buf: String,
+    /// Estado de la última sincronización (lo escribe el hilo de git).
+    sync_status: Arc<Mutex<String>>,
     /// Icono de bandeja + hotkey (RAII). `None` si no se pudo crear la bandeja.
     tray: Option<Tray>,
 }
@@ -139,6 +147,7 @@ impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, repo: SqliteRepository) -> Self {
         let config = Config::load();
         config::apply_theme(&cc.egui_ctx, config.dark_mode);
+        let sync_repo_buf = config.git_repo_path.clone().unwrap_or_default();
         let mut app = Self {
             repo,
             tasks: Vec::new(),
@@ -162,6 +171,8 @@ impl App {
             last_check_msg: None,
             config,
             already_quitting: false,
+            sync_repo_buf,
+            sync_status: Arc::new(Mutex::new(String::new())),
             tray: Tray::new(cc.egui_ctx.clone()),
         };
         app.reload();
@@ -454,6 +465,8 @@ impl App {
                     self.check_repos();
                     changed = true;
                 }
+                Action::Sync => self.start_sync(ctx),
+                Action::Pull => self.start_pull(ctx),
                 Action::CreateProject(name) => {
                     if let Err(e) = self.repo.create_project(NewProject::new(name)) {
                         self.error = Some(e.to_string());
@@ -587,6 +600,55 @@ impl App {
             self.error = Some(e.to_string());
         }
     }
+
+    fn set_sync(&self, msg: impl Into<String>) {
+        if let Ok(mut g) = self.sync_status.lock() {
+            *g = msg.into();
+        }
+    }
+
+    /// Exporta a Markdown y hace commit + push en un hilo aparte (Fase 6).
+    fn start_sync(&mut self, ctx: &egui::Context) {
+        let Some(path) = self.config.git_repo_path.clone() else {
+            self.set_sync("Configura la ruta del repo en Ajustes");
+            return;
+        };
+        let files = sync::render_markdown(&self.projects, &self.tasks, &self.task_tags);
+        if let Err(e) = sync::export_to_dir(std::path::Path::new(&path), &files) {
+            self.set_sync(format!("Error export: {e}"));
+            return;
+        }
+        self.set_sync("Sincronizando…");
+        let status = self.sync_status.clone();
+        let ctx = ctx.clone();
+        let msg = format!("tasky sync {}", Local::now().format("%Y-%m-%d %H:%M:%S"));
+        std::thread::spawn(move || {
+            let result =
+                sync::commit_and_push(&path, &msg).unwrap_or_else(|e| format!("Error: {e}"));
+            if let Ok(mut g) = status.lock() {
+                *g = result;
+            }
+            ctx.request_repaint();
+        });
+    }
+
+    /// Trae cambios del remoto (fetch + fast-forward) en un hilo aparte (Fase 6).
+    fn start_pull(&mut self, ctx: &egui::Context) {
+        let Some(path) = self.config.git_repo_path.clone() else {
+            self.set_sync("Configura la ruta del repo en Ajustes");
+            return;
+        };
+        self.set_sync("Trayendo…");
+        let status = self.sync_status.clone();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let result = sync::pull(&path).unwrap_or_else(|e| format!("Error pull: {e}"));
+            if let Ok(mut g) = status.lock() {
+                *g = result;
+            }
+            ctx.request_repaint();
+        });
+    }
 }
 
 impl eframe::App for App {
@@ -631,6 +693,8 @@ impl eframe::App for App {
             self.selected = None;
         }
 
+        let sync_msg = self.sync_status.lock().map(|g| g.clone()).unwrap_or_default();
+
         {
             let App {
                 tasks,
@@ -651,6 +715,7 @@ impl eframe::App for App {
                 repo_keyword_buf,
                 last_check_msg,
                 config,
+                sync_repo_buf,
                 ..
             } = &mut *self;
             let editing_id = *editing;
@@ -738,6 +803,30 @@ impl eframe::App for App {
                     {
                         let _ = config::set_autostart(config.start_with_windows);
                         config.save();
+                    }
+                    ui.separator();
+                    ui.label("Repo de sincronización (git):");
+                    let resp = ui.add(
+                        egui::TextEdit::singleline(sync_repo_buf)
+                            .hint_text("ruta a un repo git local")
+                            .desired_width(f32::INFINITY),
+                    );
+                    if resp.lost_focus() {
+                        let t = sync_repo_buf.trim();
+                        config.git_repo_path =
+                            if t.is_empty() { None } else { Some(t.to_string()) };
+                        config.save();
+                    }
+                    ui.horizontal(|ui| {
+                        if ui.button("Sincronizar").clicked() {
+                            actions.push(Action::Sync);
+                        }
+                        if ui.button("Traer (pull)").clicked() {
+                            actions.push(Action::Pull);
+                        }
+                    });
+                    if !sync_msg.is_empty() {
+                        ui.weak(&sync_msg);
                     }
                 });
             });
