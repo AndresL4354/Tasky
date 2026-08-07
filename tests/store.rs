@@ -166,3 +166,25 @@ fn sqlite_repo_link() {
 fn mock_repo_link() {
     repo_link(&mut MockRepository::new());
 }
+
+/// `backup_to` (VACUUM INTO) produce una base válida y completa (Fase 7).
+#[test]
+fn sqlite_backup_roundtrip() {
+    let mut repo = fresh_sqlite();
+    repo.create_task(NewTask::new("respáldame")).unwrap();
+    repo.create_task(NewTask::new("y a mí")).unwrap();
+
+    let dir = std::env::temp_dir().join(format!("tasky_bak_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("backup.db");
+
+    repo.backup_to(&path).unwrap();
+    assert!(path.exists());
+
+    // El backup se puede abrir y contiene las mismas tareas.
+    let restored = SqliteRepository::open(&path).unwrap();
+    assert_eq!(restored.list_tasks().unwrap().len(), 2);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

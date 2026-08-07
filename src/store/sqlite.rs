@@ -31,6 +31,15 @@ impl SqliteRepository {
         Ok(Self { conn })
     }
 
+    /// Copia consistente de la base a `path` mediante `VACUUM INTO` (Fase 7,
+    /// backups). El `path` lo controla la app (nombre fechado en carpeta
+    /// conocida); se escapan comillas simples por robustez.
+    pub fn backup_to(&self, path: &Path) -> Result<()> {
+        let target = path.to_string_lossy().replace('\'', "''");
+        self.conn.execute_batch(&format!("VACUUM INTO '{target}';"))?;
+        Ok(())
+    }
+
     fn init(conn: &mut Connection) -> Result<()> {
         // Debe fijarse fuera de transacción (antes de migrar); persiste por
         // conexión. Sin esto, las cascadas ON DELETE no se aplican.

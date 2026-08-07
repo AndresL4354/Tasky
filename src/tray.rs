@@ -10,6 +10,9 @@
 //! Así, aunque la ventana esté oculta y eframe en reposo, un clic en la bandeja
 //! o el hotkey la vuelven a mostrar.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
 use eframe::egui;
 use global_hotkey::{
     hotkey::{Code, HotKey, Modifiers},
@@ -22,10 +25,20 @@ use tray_icon::{
 
 /// Guarda RAII: mientras exista, el icono de bandeja y el gestor de hotkeys
 /// siguen vivos (si se sueltan, el icono desaparece y el hotkey se libera).
-#[allow(dead_code)] // los campos se mantienen vivos por su Drop, no se leen
+#[allow(dead_code)] // tray/hotkey_mgr se mantienen vivos por su Drop, no se leen
 pub struct Tray {
     tray: TrayIcon,
     hotkey_mgr: Option<GlobalHotKeyManager>,
+    /// Se pone a `true` cuando el usuario elige "Salir" en el menú; el App lo
+    /// consulta para respaldar y cerrar de forma ordenada.
+    quit: Arc<AtomicBool>,
+}
+
+impl Tray {
+    /// ¿El usuario pidió salir desde el menú de bandeja?
+    pub fn quit_requested(&self) -> bool {
+        self.quit.load(Ordering::SeqCst)
+    }
 }
 
 impl Tray {
@@ -62,14 +75,19 @@ impl Tray {
             });
         }
 
+        let quit = Arc::new(AtomicBool::new(false));
+
         // Hilo: eventos del menú (Mostrar / Salir).
         {
             let ctx = ctx.clone();
+            let quit = quit.clone();
             std::thread::spawn(move || {
                 let rx = MenuEvent::receiver();
                 while let Ok(ev) = rx.recv() {
                     if ev.id == quit_id {
-                        std::process::exit(0);
+                        // Salida ordenada: el App respaldará y cerrará.
+                        quit.store(true, Ordering::SeqCst);
+                        ctx.request_repaint();
                     } else if ev.id == show_id {
                         show_window(&ctx);
                     }
@@ -79,7 +97,7 @@ impl Tray {
 
         let hotkey_mgr = init_hotkey(ctx);
 
-        Some(Tray { tray, hotkey_mgr })
+        Some(Tray { tray, hotkey_mgr, quit })
     }
 }
 

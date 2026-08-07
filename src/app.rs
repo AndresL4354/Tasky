@@ -20,6 +20,7 @@ use tasky::core::rules::regenerate_recurring;
 use tasky::core::{Freq, NewProject, NewTask, Project, Recurrence, Status, Tag, Task};
 use tasky::store::{SqliteRepository, TaskRepository};
 
+use crate::config::{self, Config};
 use crate::gitlink;
 use crate::tray::Tray;
 
@@ -48,16 +49,9 @@ pub fn run() -> eframe::Result {
     )
 }
 
-/// Ubicación de la base: `%APPDATA%\Tasky\tasky.db` (Fase 7 lo refinará).
-fn data_dir() -> std::path::PathBuf {
-    match std::env::var_os("APPDATA") {
-        Some(appdata) => std::path::PathBuf::from(appdata).join("Tasky"),
-        None => std::path::PathBuf::from("."),
-    }
-}
-
+/// Ubicación de la base: `%APPDATA%\Tasky\tasky.db`.
 fn open_repo() -> tasky::store::Result<SqliteRepository> {
-    let dir = data_dir();
+    let dir = config::data_dir();
     let _ = std::fs::create_dir_all(&dir);
     SqliteRepository::open(dir.join("tasky.db"))
 }
@@ -135,12 +129,16 @@ pub struct App {
     was_focused: bool,
     did_initial_check: bool,
     last_check_msg: Option<String>,
+    config: Config,
+    already_quitting: bool,
     /// Icono de bandeja + hotkey (RAII). `None` si no se pudo crear la bandeja.
     tray: Option<Tray>,
 }
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, repo: SqliteRepository) -> Self {
+        let config = Config::load();
+        config::apply_theme(&cc.egui_ctx, config.dark_mode);
         let mut app = Self {
             repo,
             tasks: Vec::new(),
@@ -162,6 +160,8 @@ impl App {
             was_focused: true,
             did_initial_check: false,
             last_check_msg: None,
+            config,
+            already_quitting: false,
             tray: Tray::new(cc.egui_ctx.clone()),
         };
         app.reload();
@@ -574,14 +574,36 @@ impl App {
             "Sin coincidencias nuevas".to_string()
         });
     }
+
+    /// Al salir (menú "Salir"): guarda la config y hace un backup fechado y
+    /// consistente de la base (VACUUM INTO) en `%APPDATA%\Tasky\backups\`.
+    fn on_quit(&mut self) {
+        self.config.save();
+        let dir = config::data_dir().join("backups");
+        let _ = std::fs::create_dir_all(&dir);
+        let stamp = Local::now().format("%Y%m%d-%H%M%S");
+        let path = dir.join(format!("tasky-{stamp}.db"));
+        if let Err(e) = self.repo.backup_to(&path) {
+            self.error = Some(e.to_string());
+        }
+    }
 }
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
 
-        // Hide-to-tray: si hay bandeja, cerrar oculta en vez de matar.
-        if self.tray.is_some() && ctx.input(|i| i.viewport().close_requested()) {
+        // Salir (menú de bandeja): respaldar + guardar config + cerrar de verdad.
+        let quitting = self.tray.as_ref().is_some_and(|t| t.quit_requested());
+        if quitting {
+            if !self.already_quitting {
+                self.already_quitting = true;
+                self.on_quit();
+            }
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+        // Hide-to-tray: cerrar la ventana la oculta (salvo que estemos saliendo).
+        if !quitting && self.tray.is_some() && ctx.input(|i| i.viewport().close_requested()) {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
         }
@@ -628,6 +650,7 @@ impl eframe::App for App {
                 repo_path_buf,
                 repo_keyword_buf,
                 last_check_msg,
+                config,
                 ..
             } = &mut *self;
             let editing_id = *editing;
@@ -703,6 +726,20 @@ impl eframe::App for App {
                 if let Some(msg) = last_check_msg.as_deref() {
                     ui.weak(msg);
                 }
+                ui.separator();
+                ui.collapsing("Ajustes", |ui| {
+                    if ui.checkbox(&mut config.dark_mode, "Tema oscuro").changed() {
+                        config::apply_theme(ui.ctx(), config.dark_mode);
+                        config.save();
+                    }
+                    if ui
+                        .checkbox(&mut config.start_with_windows, "Arrancar con Windows")
+                        .changed()
+                    {
+                        let _ = config::set_autostart(config.start_with_windows);
+                        config.save();
+                    }
+                });
             });
 
             // --- Panel derecho: detalle + dependencias de la selección ---
