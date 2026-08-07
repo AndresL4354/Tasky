@@ -918,11 +918,23 @@ impl eframe::App for App {
                                 }
                             }
                             _ => {
-                                ui.add(
-                                    egui::TextEdit::singleline(repo_path_buf)
-                                        .hint_text("Ruta del repo local")
-                                        .desired_width(f32::INFINITY),
-                                );
+                                // Botón-campo: al pulsarlo abre el explorador de
+                                // carpetas nativo para elegir el repo.
+                                let label = if repo_path_buf.trim().is_empty() {
+                                    "Elegir carpeta del repo…".to_string()
+                                } else {
+                                    repo_path_buf.clone()
+                                };
+                                if ui
+                                    .add_sized([ui.available_width(), 22.0], egui::Button::new(label))
+                                    .on_hover_text("Abre el explorador para elegir el repo")
+                                    .clicked()
+                                    && let Some(dir) = rfd::FileDialog::new()
+                                        .set_title("Elige el repositorio git local")
+                                        .pick_folder()
+                                {
+                                    *repo_path_buf = dir.display().to_string();
+                                }
                                 ui.add(
                                     egui::TextEdit::singleline(repo_keyword_buf)
                                         .hint_text("Palabra clave del commit")

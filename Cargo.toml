@@ -10,6 +10,7 @@ eframe = { version = "0.35", default-features = false, features = ["glow", "pers
 egui = "0.35"
 git2 = { version = "0.21.0", default-features = false, features = ["vendored-libgit2"] }
 global-hotkey = "0.8.0"
+rfd = "0.17.2"
 rusqlite = { version = "0.40.1", features = ["bundled"] }
 rusqlite_migration = "2.6.0"
 self_update = { version = "0.44.0", default-features = false, features = ["ureq", "rustls", "archive-zip", "compression-zip-deflate"] }
