@@ -1,0 +1,5 @@
+[build]
+# El sufijo .noindex hace que Spotlight ignore la carpeta de compilación.
+# Si no, macOS lista los ejecutables y la copia de Tasky.app de esta carpeta
+# como apps, y Tasky aparece repetida junto a la instalada en /Applications.
+target-dir = "target.noindex"

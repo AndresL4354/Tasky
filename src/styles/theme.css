@@ -1,0 +1,213 @@
+/* Paleta inspirada en One Dark / One Light. Contrastes de texto ≥ 4.5:1. */
+.theme-dark {
+  --bg: #282c34;
+  --panel: #21252b;
+  --chrome: #1b1e23;
+  --border: #3e4451;
+  --hair: #16181d;
+  --line: #2c313c;
+  --hover: #2a2e36;
+  --chip: #363c47;
+  --text: #d7dae0;
+  --text2: #abb2bf;
+  --muted: #969ba5;
+  --ln: #8e939d;
+  --ln-active: #eceef1;
+  --pop: #2f343e;
+  --input: #1d2025;
+  --scrim: rgba(0, 0, 0, 0.35);
+  --shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  --c-muted: #969ba5;
+  --c-blue: #61afef;
+  --c-cyan: #56b6c2;
+  --c-green: #98c379;
+  --c-yellow: #e5c07b;
+  --c-orange: #d19a66;
+  --c-red: #ec7d86;
+  --c-purple: #c678dd;
+  color-scheme: dark;
+}
+
+.theme-light {
+  --bg: #fafafa;
+  --panel: #efeff1;
+  --chrome: #e4e4e7;
+  --border: #c9cacf;
+  --hair: #d9dade;
+  --line: #e8e8ed;
+  --hover: #f1f1f3;
+  --chip: #dedee4;
+  --text: #24262b;
+  --text2: #383a42;
+  --muted: #62656f;
+  --ln: #6f727c;
+  --ln-active: #17181b;
+  --pop: #ffffff;
+  --input: #ffffff;
+  --scrim: rgba(0, 0, 0, 0.18);
+  --shadow: 0 12px 32px rgba(0, 0, 0, 0.16);
+  --c-muted: #62656f;
+  --c-blue: #3567cc;
+  --c-cyan: #0e7a86;
+  --c-green: #3f7e3e;
+  --c-yellow: #8a5d00;
+  --c-orange: #a14f00;
+  --c-red: #c4183f;
+  --c-purple: #9a2398;
+  color-scheme: light;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  -webkit-font-smoothing: antialiased;
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+}
+
+input,
+textarea,
+select,
+button {
+  font: inherit;
+  color: inherit;
+}
+
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+button {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+:focus-visible {
+  outline: 1px solid var(--c-blue);
+  outline-offset: -1px;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--c-blue) 35%, transparent);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--muted) 35%, transparent);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.label {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+.ghost-input {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+}
+.ghost-input::placeholder,
+.field::placeholder {
+  color: var(--muted);
+}
+
+.field {
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  outline: none;
+  background: var(--input);
+  color: var(--text);
+}
+.field:focus {
+  border-color: var(--c-blue);
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 3px;
+  color: var(--muted);
+}
+.icon-btn:hover {
+  color: var(--text);
+  background: var(--chip);
+}
+
+.text-btn {
+  padding: 2px 8px;
+  border-radius: 3px;
+  color: var(--muted);
+}
+.text-btn:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+
+.btn {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+}
+.btn:hover {
+  background: var(--hover);
+}
+.btn.primary {
+  border-color: var(--c-blue);
+  color: var(--c-blue);
+}
+.btn.danger {
+  border-color: var(--c-red);
+  color: var(--c-red);
+}
+
+.kbd {
+  color: var(--muted);
+  white-space: nowrap;
+}

@@ -1,0 +1,69 @@
+name: release
+
+# Compila los instaladores de macOS y Windows.
+# Se ejecuta al subir un tag (git tag v0.1.0 && git push --tags) o a mano desde la pestaña Actions.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: --target aarch64-apple-darwin
+            rust-target: aarch64-apple-darwin
+          - platform: macos-latest
+            args: --target x86_64-apple-darwin
+            rust-target: x86_64-apple-darwin
+          - platform: windows-latest
+            args: ''
+            rust-target: ''
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-target }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target.noindex'
+
+      - run: npm ci
+
+      - run: npm test
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          releaseName: 'Tasky ${{ github.ref_name }}'
+          releaseBody: 'Instaladores de Tasky para macOS (.dmg) y Windows (.msi / .exe).'
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
+
+      # Sin tag (ejecución manual) los instaladores quedan como artefactos del workflow.
+      - if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tasky-${{ matrix.platform }}-${{ matrix.rust-target || 'x64' }}
+          path: |
+            src-tauri/target.noindex/**/release/bundle/dmg/*.dmg
+            src-tauri/target.noindex/**/release/bundle/msi/*.msi
+            src-tauri/target.noindex/**/release/bundle/nsis/*.exe
+          if-no-files-found: ignore
