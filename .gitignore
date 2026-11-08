@@ -6,3 +6,4 @@ dist/
 !.vscode/extensions.json
 .claude/settings.local.json
 .claude/
+dist-mobile/

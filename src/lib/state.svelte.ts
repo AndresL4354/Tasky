@@ -673,6 +673,59 @@ export class AppState {
     this.persist(this.db.deleteProject(id));
   }
 
+  // ───────────────────────── notas del celular
+
+  /** Proyecto activo con ese nombre (sin distinguir mayúsculas); si no existe, lo crea. */
+  ensureProject(name: string): Project {
+    const clean = name.trim() || 'bandeja';
+    const found = this.liveProjects.find((p) => p.name.toLowerCase() === clean.toLowerCase());
+    if (found) return found;
+    const now = nowStamp();
+    const project: Project = {
+      id: uid(),
+      name: clean,
+      sort_order: this.projects.reduce((m, p) => Math.max(m, p.sort_order), 0) + 1,
+      archived: false,
+      created_at: now,
+      updated_at: now,
+    };
+    this.projects.push(project);
+    this.persist(this.db.saveProjects([project]));
+    return this.projects.find((p) => p.id === project.id)!;
+  }
+
+  /**
+   * Agrega una nota que llegó del celular al proyecto elegido allá.
+   * Si ese proyecto ya no existe (o no se eligió), va a "bandeja". Devuelve el proyecto usado.
+   */
+  importRemoteNote(note: { text: string; projectId: string | null; projectName: string | null }): string {
+    let project = note.projectId ? this.liveProjects.find((p) => p.id === note.projectId) : undefined;
+    if (!project && note.projectName) {
+      project = this.liveProjects.find((p) => p.name.toLowerCase() === note.projectName!.toLowerCase());
+    }
+    if (!project) project = this.ensureProject('bandeja');
+    const parsed = parseEntry(note.text);
+    const now = nowStamp();
+    const status = this.defaultStatus();
+    const task: Task = {
+      id: uid(),
+      project_id: project.id,
+      title: parsed.title || note.text.trim() || 'nota sin texto',
+      status_id: status.id,
+      priority: parsed.priority ?? 1,
+      due_date: parsed.due,
+      notes: '',
+      tags: parsed.tags,
+      sort_order: nextSortOrder(this.tasks.filter((t) => t.project_id === project.id)),
+      created_at: now,
+      updated_at: now,
+      completed_at: status.is_done ? now : null,
+    };
+    this.tasks.push(task);
+    this.saveTask(task);
+    return project.name;
+  }
+
   // ───────────────────────── estados
 
   updateStatus(id: string, patch: Partial<Status>) {

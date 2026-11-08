@@ -5,6 +5,7 @@
   import { app } from '../lib/state.svelte';
   import type { ThemePref } from '../lib/types';
   import Icon from './Icon.svelte';
+  import PhoneSettings from './PhoneSettings.svelte';
 
   let dialog: HTMLDivElement | undefined = $state();
   let deleting = $state<{ id: string; replacement: string } | null>(null);
@@ -165,6 +166,8 @@
         </div>
         <button class="btn add" onclick={() => app.addStatus()}><Icon name="plus" size={12} /> agregar estado</button>
       </section>
+
+      <PhoneSettings />
 
       <section>
         <h3>datos</h3>

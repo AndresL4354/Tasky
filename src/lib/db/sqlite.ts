@@ -30,6 +30,12 @@ export class SqliteAdapter implements DataAdapter {
   setSetting(key: string, value: string) {
     return invoke<void>('set_setting', { key, value });
   }
+  getLocal(key: string) {
+    return invoke<string | null>('get_local', { key });
+  }
+  setLocal(key: string, value: string | null) {
+    return invoke<void>('set_local', { key, value });
+  }
   exportBackup(fileName: string, exportedAt: string) {
     return invoke<string | null>('export_backup', { fileName, exportedAt });
   }

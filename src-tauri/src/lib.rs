@@ -62,6 +62,17 @@ fn set_setting(db: State<Db>, key: String, value: String) -> CmdResult<()> {
     db.with(|c| db::set_setting(c, &key, &value))
 }
 
+/// Datos propios de este equipo (no viajan en los respaldos).
+#[tauri::command]
+fn get_local(db: State<Db>, key: String) -> CmdResult<Option<String>> {
+    db.with(|c| db::get_local(c, &key))
+}
+
+#[tauri::command]
+fn set_local(db: State<Db>, key: String, value: Option<String>) -> CmdResult<()> {
+    db.with(|c| db::set_local(c, &key, value.as_deref()))
+}
+
 /// Pide dónde guardar y escribe un respaldo JSON. Devuelve la ruta o `None` si se canceló.
 #[tauri::command]
 async fn export_backup(
@@ -162,6 +173,7 @@ fn build_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
@@ -192,6 +204,8 @@ pub fn run() {
             save_statuses,
             delete_status,
             set_setting,
+            get_local,
+            set_local,
             export_backup,
             import_backup
         ])

@@ -97,6 +97,13 @@ INSERT INTO statuses (id, name, symbol, color, sort_order, is_done) VALUES
   ('bloqueada', 'bloqueada',     '■', 'red',    2, 0),
   ('deploy',    'por desplegar', '◆', 'purple', 3, 0),
   ('lista',     'lista',         '✓', 'green',  4, 1);
+"#, r#"
+-- Datos propios de este equipo (token, identidad para el celular).
+-- No forman parte de los respaldos: no se exportan ni se pisan al importar.
+CREATE TABLE local_settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 "#];
 
 pub fn open(path: &Path) -> rusqlite::Result<Connection> {
@@ -283,6 +290,27 @@ pub fn set_setting(conn: &Connection, key: &str, value: &str) -> rusqlite::Resul
     Ok(())
 }
 
+pub fn get_local(conn: &Connection, key: &str) -> rusqlite::Result<Option<String>> {
+    match conn.query_row("SELECT value FROM local_settings WHERE key = ?1", params![key], |r| r.get(0)) {
+        Ok(v) => Ok(Some(v)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// Guarda un valor local; `None` lo borra.
+pub fn set_local(conn: &Connection, key: &str, value: Option<&str>) -> rusqlite::Result<()> {
+    match value {
+        Some(v) => conn.execute(
+            "INSERT INTO local_settings (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![key, v],
+        )?,
+        None => conn.execute("DELETE FROM local_settings WHERE key = ?1", params![key])?,
+    };
+    Ok(())
+}
+
 /// Reemplaza todo el contenido (importar respaldo). Si algo es inconsistente, no cambia nada.
 pub fn replace_all(conn: &mut Connection, snap: &Snapshot) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
@@ -366,6 +394,29 @@ mod tests {
         let snap = load_all(&conn).unwrap();
         assert_eq!(snap.tasks[0].status_id, "pendiente");
         assert!(snap.statuses.iter().all(|s| s.id != "bloqueada"));
+    }
+
+    #[test]
+    fn local_settings_survive_import_and_are_not_exported() {
+        let mut conn = open_in_memory().unwrap();
+        set_local(&conn, "phone.token", Some("secreto")).unwrap();
+        let snap = load_all(&conn).unwrap();
+        assert!(!serde_json::to_string(&snap).unwrap().contains("secreto"));
+        replace_all(&mut conn, &snap).unwrap();
+        assert_eq!(get_local(&conn, "phone.token").unwrap().as_deref(), Some("secreto"));
+        set_local(&conn, "phone.token", None).unwrap();
+        assert_eq!(get_local(&conn, "phone.token").unwrap(), None);
+    }
+
+    #[test]
+    fn migrates_existing_v1_database() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(MIGRATIONS[0]).unwrap();
+        conn.execute_batch("PRAGMA user_version = 1").unwrap();
+        migrate(&mut conn).unwrap();
+        let v: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(v, MIGRATIONS.len() as i64);
+        set_local(&conn, "k", Some("v")).unwrap();
     }
 
     #[test]

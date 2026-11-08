@@ -1,6 +1,7 @@
 <script lang="ts">
   import { colorVar } from '../lib/defaults';
   import { keys } from '../lib/platform';
+  import { phone } from '../lib/phone.svelte';
   import { app } from '../lib/state.svelte';
   import type { ThemePref } from '../lib/types';
 
@@ -29,6 +30,15 @@
 
   {#if app.filter.trim()}
     <button class="text-btn" title="quitar filtro" onclick={() => (app.filter = '')}>filtro: {app.filter.trim()} ×</button>
+  {/if}
+  {#if phone.ready && phone.enabled}
+    <button
+      class="text-btn phone {phone.status}"
+      title={phone.status === 'error' ? (phone.lastError ?? 'error') : 'recibiendo notas del celular · abrir ajustes'}
+      onclick={() => (app.settingsOpen = true)}
+    >
+      <span class="dot">●</span> celular
+    </button>
   {/if}
   <button class="text-btn" title="cambiar orden" onclick={() => app.cycleSort()}>orden: {app.sort}</button>
   <button class="text-btn" aria-pressed={app.hideDone} title={keys('Mod+Shift+H')} onclick={() => (app.hideDone = !app.hideDone)}>
@@ -66,5 +76,17 @@
   }
   .text-btn {
     margin: 0 -8px;
+  }
+  .phone .dot {
+    color: var(--muted);
+  }
+  .phone.ok .dot {
+    color: var(--c-green);
+  }
+  .phone.syncing .dot {
+    color: var(--c-yellow);
+  }
+  .phone.error .dot {
+    color: var(--c-red);
   }
 </style>

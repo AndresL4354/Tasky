@@ -12,6 +12,7 @@
   import Toast from './components/Toast.svelte';
   import { handleGlobalKey } from './lib/keyboard';
   import { isTauri, isTypingTarget } from './lib/platform';
+  import { phone } from './lib/phone.svelte';
   import { app } from './lib/state.svelte';
 
   let systemDark = $state(true);
@@ -27,7 +28,7 @@
     const flush = () => app.flushPending();
     window.addEventListener('beforeunload', flush);
     window.addEventListener('blur', flush);
-    void app.init();
+    void app.init().then(() => (app.ready ? phone.init() : undefined));
     return () => {
       mq.removeEventListener('change', onScheme);
       window.removeEventListener('beforeunload', flush);

@@ -11,6 +11,9 @@ export interface DataAdapter {
   saveStatuses(statuses: Status[]): Promise<void>;
   deleteStatus(id: string, replacement: string, now: string): Promise<void>;
   setSetting(key: string, value: string): Promise<void>;
+  /** Datos propios de este equipo (token, identidad): no viajan en los respaldos. */
+  getLocal(key: string): Promise<string | null>;
+  setLocal(key: string, value: string | null): Promise<void>;
   /** Devuelve la ruta/nombre del archivo guardado o null si se canceló. */
   exportBackup(fileName: string, exportedAt: string): Promise<string | null>;
   /** Reemplaza todo con un respaldo elegido por el usuario. null si se canceló. */

@@ -3,6 +3,7 @@ import type { Project, Snapshot, Status, Task } from '../types';
 import type { DataAdapter } from './adapter';
 
 const STORAGE_KEY = 'tasky-dev-db';
+const LOCAL_PREFIX = 'tasky-dev-local:';
 
 function emptySnapshot(): Snapshot {
   return { version: 1, statuses: DEFAULT_STATUSES.map((s) => ({ ...s })), projects: [], tasks: [], settings: {} };
@@ -106,6 +107,30 @@ export class MemoryAdapter implements DataAdapter {
   async setSetting(key: string, value: string) {
     this.data.settings[key] = value;
     this.write();
+  }
+
+  private local = new Map<string, string>();
+
+  async getLocal(key: string) {
+    if (this.persist) {
+      try {
+        return localStorage.getItem(`${LOCAL_PREFIX}${key}`);
+      } catch {
+        /* sin almacenamiento */
+      }
+    }
+    return this.local.get(key) ?? null;
+  }
+  async setLocal(key: string, value: string | null) {
+    if (value === null) this.local.delete(key);
+    else this.local.set(key, value);
+    if (!this.persist) return;
+    try {
+      if (value === null) localStorage.removeItem(`${LOCAL_PREFIX}${key}`);
+      else localStorage.setItem(`${LOCAL_PREFIX}${key}`, value);
+    } catch {
+      /* sin almacenamiento */
+    }
   }
 
   async exportBackup(fileName: string, exportedAt: string) {

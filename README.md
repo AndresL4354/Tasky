@@ -35,6 +35,31 @@ pesa unos pocos MB y los datos se guardan solo en tu equipo.
 | Barra lateral / detalle | ⌘B / ⌘I | Ctrl+B / Ctrl+I |
 | Ocultar terminadas | ⌘⇧H | Ctrl+Shift+H |
 
+## Anotar desde el celular
+
+Desde el iPhone puedes anotar en el Tasky de cualquier equipo (por ejemplo "pc del trabajo" o
+"mac de casa") y ver sus pendientes. Las notas pasan por un repo **privado** de GitHub que hace de
+bandeja (`AndresL4354/tasky-bandeja`):
+
+- El celular crea un issue con la etiqueta `para:<equipo>`. Ese equipo lo revisa cada ~45 s,
+  agrega la tarea al proyecto elegido (o a "bandeja") y cierra el issue. Si el equipo está apagado,
+  la nota espera.
+- Cada equipo publica `devices/<id>.json` con sus proyectos y tareas sin terminar (sin notas), para
+  que el celular pueda listarlos.
+
+Configuración (una vez):
+
+1. Crea un token *fine-grained* en <https://github.com/settings/personal-access-tokens/new> con acceso
+   solo al repo `tasky-bandeja` y permisos **Contents** e **Issues** en lectura y escritura.
+2. En cada Tasky de escritorio: Ajustes → celular → activa, ponle nombre al equipo y pega el token.
+   El token se guarda solo en ese equipo y no viaja en los respaldos.
+3. En el iPhone abre <https://andresl4354.github.io/Tasky/> en Safari (o escanea el QR de Ajustes),
+   pega el mismo token y usa Compartir → Agregar a inicio.
+
+La app del celular está en `mobile/` y se publica sola en GitHub Pages con
+`.github/workflows/pages.yml`. Para probarla sin GitHub: `npm run dev:mobile` y abre
+`http://localhost:1430/#demo`.
+
 ## Desarrollo
 
 Requisitos: Node LTS y Rust (en esta Mac se instalaron con `nvm` y `rustup`). En Windows además

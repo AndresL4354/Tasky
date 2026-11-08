@@ -26,6 +26,16 @@ export function keys(combo: string): string {
   return parts.map((p) => map[p] ?? p).join('+');
 }
 
+/** Abre un enlace en el navegador del sistema. */
+export async function openExternal(url: string) {
+  if (isTauri) {
+    const { openUrl } = await import('@tauri-apps/plugin-opener');
+    await openUrl(url);
+  } else {
+    window.open(url, '_blank', 'noopener');
+  }
+}
+
 export function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable) return true;

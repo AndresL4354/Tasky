@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Mismo diseño que app-icon.svg pero a sangre: iOS redondea las esquinas. -->
+  <rect width="1024" height="1024" fill="#21252b"/>
+  <g transform="translate(-124.3 -124.3) scale(1.2427)">
+    <rect x="280" y="290" width="464" height="86" rx="43" fill="#d7dae0"/>
+    <rect x="469" y="290" width="86" height="440" rx="43" fill="#d7dae0"/>
+    <circle cx="706" cy="676" r="96" fill="#98c379"/>
+    <path d="M660 678 L694 712 L756 642" stroke="#21252b" stroke-width="34" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

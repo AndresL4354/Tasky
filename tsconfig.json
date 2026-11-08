@@ -12,5 +12,5 @@
     "resolveJsonModule": true,
     "types": ["svelte", "vite/client", "node"]
   },
-  "include": ["src/**/*.ts", "src/**/*.svelte", "vite.config.ts"]
+  "include": ["src/**/*.ts", "src/**/*.svelte", "mobile/**/*.ts", "mobile/**/*.svelte", "vite.config.ts", "vite.mobile.config.ts"]
 }

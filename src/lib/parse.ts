@@ -78,6 +78,22 @@ export function parseEntry(text: string, today: string = todayISO()): ParsedEntr
   return out;
 }
 
+/**
+ * Convierte las fechas relativas en absolutas (`@viernes` → `@2026-11-13`), para que la nota
+ * signifique lo mismo aunque el otro equipo la reciba otro día.
+ */
+export function normalizeEntry(text: string, today: string = todayISO()): string {
+  return text
+    .trim()
+    .split(/\s+/)
+    .map((w) => {
+      if (!w.startsWith('@') || w.length < 2) return w;
+      const d = parseDate(w.slice(1), today);
+      return d ? `@${d}` : w;
+    })
+    .join(' ');
+}
+
 /** Normaliza una etiqueta escrita por el usuario: `Front End` → `#front-end`. */
 export function normalizeTag(raw: string): string | null {
   const v = raw.trim().toLowerCase().replace(/^#+/, '').replace(/\s+/g, '-');
