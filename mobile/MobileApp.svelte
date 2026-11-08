@@ -16,6 +16,7 @@
     type SnapshotTask,
     type TaskPatch,
   } from '../src/lib/relay/types';
+  import { listen, ring, type Ring } from '../src/lib/relay/doorbell';
   import TaskEditor from './TaskEditor.svelte';
 
   type ShownTask = SnapshotTask & { pending: boolean; deleting: boolean };
@@ -87,6 +88,13 @@
   let loaded = $state(false);
   let loadError = $state('');
   let now = $state(Date.now());
+
+  // Timbre en tiempo real
+  let live = $state(false);
+  let topic: string | null = null;
+  let stopListening: (() => void) | null = null;
+  /** Notas que el equipo ya aplicó (el listado de GitHub tarda unos segundos en reflejarlo). */
+  let applied = new Set<number>();
 
   // Interfaz
   let tab = $state<'anotar' | 'ver'>('anotar');
@@ -193,6 +201,7 @@
       try {
         const number = await relay.sendNote(n);
         notes = [...notes, { ...n, kind: n.kind ?? 'create', number }];
+        ringNote(number, n.deviceId);
       } catch {
         rest.push(n);
       }
@@ -201,21 +210,65 @@
     save();
   }
 
+  let refreshAgain = false;
+
   async function refresh() {
-    if (!relay || loading) return;
+    if (!relay) return;
+    if (loading) {
+      // Llegó un aviso mientras se actualizaba: se repite al terminar.
+      refreshAgain = true;
+      return;
+    }
     loading = true;
     loadError = '';
     try {
       await flushOutbox();
       const [d, n] = await Promise.all([relay.listDevices(), relay.listNotes()]);
       devices = d;
-      notes = n;
+      notes = n.filter((x) => !applied.has(x.number));
       loaded = true;
+      void connectDoorbell();
     } catch (e) {
       loadError = message(e);
     } finally {
       loading = false;
+      if (refreshAgain) {
+        refreshAgain = false;
+        void refresh();
+      }
     }
+  }
+
+  async function connectDoorbell() {
+    if (!relay || stopListening) return;
+    try {
+      const t = await relay.doorbellTopic(false);
+      if (!t || stopListening) return;
+      topic = t;
+      stopListening = listen(t, onRing, (v) => (live = v));
+    } catch {
+      /* sin timbre: queda la revisión periódica */
+    }
+  }
+
+  function disconnectDoorbell() {
+    stopListening?.();
+    stopListening = null;
+    topic = null;
+    live = false;
+  }
+
+  function onRing(r: Ring) {
+    if (r.t !== 'snap') return;
+    if (r.a?.length) {
+      for (const n of r.a) applied.add(n);
+      notes = notes.filter((x) => !applied.has(x.number));
+    }
+    void refresh();
+  }
+
+  function ringNote(number: number, deviceId: string) {
+    if (topic) void ring(topic, { t: 'note', n: number, d: deviceId });
   }
 
   async function send() {
@@ -237,6 +290,7 @@
     try {
       const number = await relay.sendNote(note);
       notes = [...notes, { ...note, kind: 'create', number }];
+      ringNote(number, note.deviceId);
       text = '';
       show(`✓ Enviada a ${device.name}`, 'ok');
     } catch (e) {
@@ -273,6 +327,7 @@
     try {
       const number = await relay.sendNote(note);
       notes = [...notes, { ...note, kind, number }];
+      ringNote(number, device.id);
       show(kind === 'delete' ? `✓ Se eliminará en ${device.name}` : `✓ Cambio enviado a ${device.name}`, 'ok');
     } catch (e) {
       if (e instanceof RelayError && e.status === 0) {
@@ -283,8 +338,8 @@
         show(message(e), 'error');
       }
     }
-    // El equipo aplica el cambio en menos de un minuto si está encendido.
-    setTimeout(() => void refresh(), 50_000);
+    // Sin timbre, el equipo lo toma en su próxima revisión: se vuelve a mirar en un rato.
+    if (!live) setTimeout(() => void refresh(), 25_000);
   }
 
   function openEditor(task: ShownTask, line: number) {
@@ -339,6 +394,7 @@
   }
 
   function disconnect() {
+    disconnectDoorbell();
     store.token = '';
     save();
     relay = null;
@@ -386,15 +442,17 @@
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('online', onOnline);
     const clock = setInterval(() => (now = Date.now()), 15_000);
+    // Revisión de respaldo (las consultas sin cambios no cuentan para el límite de GitHub).
     const poll = setInterval(() => {
       if (document.visibilityState === 'visible') void refresh();
-    }, 60_000);
+    }, 15_000);
     return () => {
       mq.removeEventListener('change', applyTheme);
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('online', onOnline);
       clearInterval(clock);
       clearInterval(poll);
+      disconnectDoorbell();
     };
   });
 </script>
@@ -419,6 +477,7 @@
     <header>
       <div class="top">
         <span class="brand">tasky{#if demo}<span class="demo"> · demo</span>{/if}</span>
+        {#if live}<span class="live" title="cambios al instante">● en vivo</span>{/if}
         <span class="fill"></span>
         <button class="icon" aria-label="Actualizar" onclick={refresh} disabled={loading}>
           <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true" class:spin={loading}><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3" /></svg>
@@ -638,6 +697,11 @@
     color: var(--text);
     font-weight: 500;
     font-size: 1.1em;
+  }
+  .live {
+    margin-left: 10px;
+    color: var(--c-green);
+    font-size: 0.78em;
   }
   .demo {
     color: var(--c-yellow);

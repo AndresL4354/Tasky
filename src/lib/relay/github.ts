@@ -1,4 +1,5 @@
 import { parseRepo } from './config';
+import { isValidTopic, newTopic } from './doorbell';
 import { NOTE_LABEL, changeLabel, decodeNote, deviceLabel, encodeNoteBody, labelsFor } from './notes';
 import { RelayError, type DeviceSnapshot, type InboxNote, type OutgoingNote, type Relay } from './types';
 
@@ -38,8 +39,18 @@ export class GitHubRelay implements Relay {
     this.repo = parsed.repo;
   }
 
+  /**
+   * Respuestas GET con su ETag: se vuelven a pedir con If-None-Match y, si no cambiaron,
+   * GitHub responde 304, que no cuenta para su límite de consultas.
+   */
+  private etags = new Map<string, { etag: string; data: unknown }>();
+  private topic: string | null = null;
+
   private async request<T>(path: string, init: RequestInit & { raw?: boolean } = {}): Promise<T> {
     const { raw, ...rest } = init;
+    const isGet = (rest.method ?? 'GET').toUpperCase() === 'GET';
+    const key = `${raw ? 'raw' : 'json'} ${path}`;
+    const cached = isGet ? this.etags.get(key) : undefined;
     let res: Response;
     try {
       res = await this.fetchImpl(`${API}${path}`, {
@@ -50,12 +61,14 @@ export class GitHubRelay implements Relay {
           Authorization: `Bearer ${this.token}`,
           'X-GitHub-Api-Version': '2022-11-28',
           ...(rest.body ? { 'Content-Type': 'application/json' } : {}),
+          ...(cached ? { 'If-None-Match': cached.etag } : {}),
           ...rest.headers,
         },
       });
     } catch {
       throw new RelayError('Sin conexión con GitHub.');
     }
+    if (res.status === 304 && cached) return cached.data as T;
     if (!res.ok) {
       let detail = '';
       try {
@@ -66,7 +79,10 @@ export class GitHubRelay implements Relay {
       throw new RelayError(this.explain(res.status, detail), res.status);
     }
     if (res.status === 204) return undefined as T;
-    return (raw ? await res.text() : await res.json()) as T;
+    const data = raw ? await res.text() : await res.json();
+    const etag = isGet ? res.headers.get('ETag') : null;
+    if (etag) this.etags.set(key, { etag, data });
+    return data as T;
   }
 
   private explain(status: number, detail: string): string {
@@ -172,6 +188,54 @@ export class GitHubRelay implements Relay {
       .map((i) => decodeNote(i))
       .filter((n): n is InboxNote => n !== null && (!deviceId || n.deviceId === deviceId))
       .sort((a, b) => a.number - b.number);
+  }
+
+  async getNote(number: number): Promise<InboxNote | null> {
+    try {
+      const issue = await this.request<{ number: number; title: string; body: string | null; created_at: string; state: string; pull_request?: unknown }>(
+        this.repoPath(`/issues/${number}`),
+      );
+      if (issue.state !== 'open' || issue.pull_request) return null;
+      return decodeNote(issue);
+    } catch (e) {
+      if (e instanceof RelayError && (e.status === 404 || e.status === 410)) return null;
+      throw e;
+    }
+  }
+
+  async doorbellTopic(create: boolean): Promise<string | null> {
+    if (this.topic) return this.topic;
+    const path = this.repoPath('/contents/config.json');
+    const read = async (): Promise<string | null> => {
+      try {
+        const cfg = JSON.parse(await this.request<string>(path, { raw: true })) as { doorbell?: unknown };
+        return isValidTopic(cfg.doorbell) ? cfg.doorbell : null;
+      } catch (e) {
+        if (e instanceof RelayError && e.status === 404) return null;
+        if (e instanceof SyntaxError) return null;
+        throw e;
+      }
+    };
+    let topic = await read();
+    if (!topic && create) {
+      const candidate = newTopic();
+      try {
+        await this.request(path, {
+          method: 'PUT',
+          body: JSON.stringify({
+            message: 'Configura el timbre en tiempo real',
+            content: toBase64(JSON.stringify({ v: 1, doorbell: candidate }, null, 1)),
+          }),
+        });
+        topic = candidate;
+      } catch (e) {
+        // Otro equipo lo creó al mismo tiempo: se usa el suyo.
+        if (e instanceof RelayError && (e.status === 409 || e.status === 422)) topic = await read();
+        else throw e;
+      }
+    }
+    if (topic) this.topic = topic;
+    return topic;
   }
 
   async ackNote(number: number, message: string): Promise<void> {

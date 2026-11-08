@@ -31,7 +31,8 @@
     if (phone.status === 'syncing') return 'revisando…';
     const checked = phone.lastCheck ? `revisó ${timeAgo(phone.lastCheck, now)}` : 'conectando…';
     const got = phone.receivedToday ? ` · ${phone.receivedToday} ${phone.receivedToday === 1 ? 'nota recibida' : 'notas recibidas'} hoy` : '';
-    return `conectado · ${checked}${got}`;
+    const speed = phone.live ? 'en vivo' : 'revisa cada 20 s';
+    return `conectado · ${speed} · ${checked}${got}`;
   });
 
   async function saveToken() {

@@ -110,4 +110,10 @@ export class DemoRelay implements Relay {
   async ackNote(number: number) {
     this.notes = this.notes.filter((n) => n.number !== number);
   }
+  async getNote(number: number) {
+    return this.notes.find((n) => n.number === number) ?? null;
+  }
+  async doorbellTopic() {
+    return null;
+  }
 }

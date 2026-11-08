@@ -34,10 +34,14 @@
   {#if phone.ready && phone.enabled}
     <button
       class="text-btn phone {phone.status}"
-      title={phone.status === 'error' ? (phone.lastError ?? 'error') : 'recibiendo notas del celular · abrir ajustes'}
+      title={phone.status === 'error'
+        ? (phone.lastError ?? 'error')
+        : phone.live
+          ? 'conectado con el celular en tiempo real · abrir ajustes'
+          : 'conectado con el celular · abrir ajustes'}
       onclick={() => (app.settingsOpen = true)}
     >
-      <span class="dot">●</span> celular
+      <span class="dot">●</span> celular{phone.live && phone.status !== 'error' ? ' · en vivo' : ''}
     </button>
   {/if}
   <button class="text-btn" title="cambiar orden" onclick={() => app.cycleSort()}>orden: {app.sort}</button>

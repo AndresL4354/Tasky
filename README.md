@@ -44,8 +44,14 @@ bandeja (`AndresL4354/tasky-bandeja`):
 - El celular crea un issue con la etiqueta `para:<equipo>`. Ese equipo lo revisa cada ~45 s,
   agrega la tarea al proyecto elegido (o a "bandeja") y cierra el issue. Si el equipo está apagado,
   la nota espera.
-- Cada equipo publica `devices/<id>.json` con sus proyectos y tareas sin terminar (sin notas), para
-  que el celular pueda listarlos.
+- Cada equipo publica `devices/<id>.json` con sus proyectos, tareas sin terminar y terminadas de los
+  últimos 3 días (con sus notas), para que el celular pueda verlas y editarlas. Los cambios y
+  eliminaciones viajan como issues con la etiqueta `cambio:<equipo>`.
+- **Tiempo real:** además, un "timbre" en [ntfy.sh](https://ntfy.sh) avisa al instante (≈1–2 s)
+  qué nota llegó o qué equipo publicó su lista. Solo viajan números por un canal secreto guardado
+  en `config.json` del repo privado; el contenido sigue solo en GitHub. Si el timbre falla, el
+  escritorio revisa cada 20 s y el celular cada 15 s (las consultas sin cambios usan ETag y no
+  cuentan para el límite de GitHub).
 
 Configuración (una vez):
 

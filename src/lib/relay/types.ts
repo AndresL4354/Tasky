@@ -69,6 +69,10 @@ export interface Relay {
   listNotes(deviceId?: string): Promise<InboxNote[]>;
   /** Marca la nota como entregada (la cierra con un comentario). */
   ackNote(number: number, message: string): Promise<void>;
+  /** Una nota puntual por número, sin la demora de los listados. null si no existe o ya se cerró. */
+  getNote(number: number): Promise<InboxNote | null>;
+  /** Canal del timbre en tiempo real; si `create` y no existe, lo crea. */
+  doorbellTopic(create: boolean): Promise<string | null>;
 }
 
 export class RelayError extends Error {
