@@ -31,7 +31,8 @@ export class DemoRelay implements Relay {
           { id: 'web', name: 'web-app', sort_order: 2 },
         ],
         tasks: [
-          task('t1', 'api', 'Implementar login con OAuth', 'proceso', 3, ['#auth']),
+          { ...task('t1', 'api', 'Implementar login con OAuth', 'proceso', 3, ['#auth']), notes: '## alcance\n- google y github\n- [ ] pantalla de error' },
+          { ...task('t6', 'api', 'Configurar CI', 'lista'), completed_at: new Date(now - 86_400_000).toISOString() },
           task('t2', 'api', 'Fix paginación en /orders', 'deploy', 3, ['#bug']),
           task('t3', 'api', 'Documentar API', 'pendiente'),
           task('t4', 'web', 'Error 500 al subir avatar', 'bloqueada', 2, ['#bug']),
@@ -55,6 +56,7 @@ export class DemoRelay implements Relay {
       },
     ];
     this.notes.push({
+      kind: 'create',
       number: this.next++,
       text: 'Llamar a soporte de AWS',
       deviceId: 'trabajo1',
@@ -82,8 +84,24 @@ export class DemoRelay implements Relay {
   async sendNote(note: OutgoingNote) {
     await this.wait();
     const number = this.next++;
-    this.notes.push({ ...note, number });
+    this.notes.push({ ...note, kind: note.kind ?? 'create', number });
+    // Simula que el equipo aplica el cambio un rato después.
+    if (note.kind === 'update' || note.kind === 'delete') setTimeout(() => this.applyChange(number), 4000);
     return number;
+  }
+  private applyChange(number: number) {
+    const n = this.notes.find((x) => x.number === number);
+    if (!n) return;
+    this.notes = this.notes.filter((x) => x.number !== number);
+    const device = this.devices.find((d) => d.id === n.deviceId);
+    const i = device ? device.tasks.findIndex((t) => t.id === n.taskId) : -1;
+    if (!device || i < 0) return;
+    if (n.kind === 'delete') device.tasks.splice(i, 1);
+    else {
+      const done = device.statuses.find((s) => s.id === (n.patch?.status_id ?? device.tasks[i].status_id))?.is_done;
+      Object.assign(device.tasks[i], n.patch, { completed_at: done ? new Date().toISOString() : null });
+    }
+    device.updated_at = new Date().toISOString();
   }
   async listNotes(deviceId?: string) {
     await this.wait();

@@ -1,5 +1,5 @@
 import { parseRepo } from './config';
-import { NOTE_LABEL, decodeNote, deviceLabel, encodeNoteBody } from './notes';
+import { NOTE_LABEL, changeLabel, decodeNote, deviceLabel, encodeNoteBody, labelsFor } from './notes';
 import { RelayError, type DeviceSnapshot, type InboxNote, type OutgoingNote, type Relay } from './types';
 
 const API = 'https://api.github.com';
@@ -151,21 +151,27 @@ export class GitHubRelay implements Relay {
       body: JSON.stringify({
         title: note.text.slice(0, 250),
         body: encodeNoteBody(note),
-        labels: [NOTE_LABEL, deviceLabel(note.deviceId)],
+        labels: labelsFor(note),
       }),
     });
     return issue.number;
   }
 
-  async listNotes(deviceId?: string): Promise<InboxNote[]> {
-    const labels = deviceId ? deviceLabel(deviceId) : NOTE_LABEL;
+  private async openIssues(label: string) {
     const issues = await this.request<{ number: number; title: string; body: string | null; created_at: string; pull_request?: unknown }[]>(
-      this.repoPath(`/issues?state=open&per_page=100&sort=created&direction=asc&labels=${encodeURIComponent(labels)}`),
+      this.repoPath(`/issues?state=open&per_page=100&sort=created&direction=asc&labels=${encodeURIComponent(label)}`),
     );
+    return issues.filter((i) => !i.pull_request);
+  }
+
+  async listNotes(deviceId?: string): Promise<InboxNote[]> {
+    const issues = deviceId
+      ? (await Promise.all([this.openIssues(deviceLabel(deviceId)), this.openIssues(changeLabel(deviceId))])).flat()
+      : await this.openIssues(NOTE_LABEL);
     return issues
-      .filter((i) => !i.pull_request)
       .map((i) => decodeNote(i))
-      .filter((n): n is InboxNote => n !== null && (!deviceId || n.deviceId === deviceId));
+      .filter((n): n is InboxNote => n !== null && (!deviceId || n.deviceId === deviceId))
+      .sort((a, b) => a.number - b.number);
   }
 
   async ackNote(number: number, message: string): Promise<void> {

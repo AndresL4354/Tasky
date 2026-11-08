@@ -4,7 +4,7 @@ import { normalizeEntry } from '../parse';
 import type { Project, Task } from '../types';
 import { parseRepo } from './config';
 import { GitHubRelay, toBase64 } from './github';
-import { buildSnapshot, decodeNote, encodeNoteBody, snapshotSignature, timeAgo } from './notes';
+import { buildSnapshot, decodeNote, encodeNoteBody, labelsFor, sanitizePatch, snapshotSignature, timeAgo } from './notes';
 import type { OutgoingNote } from './types';
 
 const note: OutgoingNote = {
@@ -20,7 +20,46 @@ describe('notas', () => {
   it('codifica y decodifica los metadatos en el cuerpo del issue', () => {
     const body = encodeNoteBody(note);
     expect(body).toContain('pc del trabajo');
-    expect(decodeNote({ number: 7, title: note.text, body })).toEqual({ ...note, number: 7 });
+    expect(decodeNote({ number: 7, title: note.text, body })).toEqual({ ...note, kind: 'create', number: 7 });
+    expect(labelsFor(note)).toEqual(['tasky', 'para:abc123']);
+  });
+
+  it('cambios y eliminaciones van con otra etiqueta y conservan el parche', () => {
+    const update: OutgoingNote = {
+      ...note,
+      kind: 'update',
+      text: 'editar: Comprar cables',
+      taskId: 't1',
+      patch: { status_id: 'lista', notes: 'texto con --> adentro', tags: ['Front End'] },
+    };
+    expect(labelsFor(update)).toEqual(['tasky', 'cambio:abc123']);
+    const decoded = decodeNote({ number: 8, title: update.text, body: encodeNoteBody(update) })!;
+    expect(decoded.kind).toBe('update');
+    expect(decoded.taskId).toBe('t1');
+    expect(decoded.patch).toEqual({ status_id: 'lista', notes: 'texto con --> adentro', tags: ['#front-end'] });
+
+    const del = decodeNote({ number: 9, title: 'eliminar: x', body: encodeNoteBody({ ...note, kind: 'delete', taskId: 't2' }) })!;
+    expect(del.kind).toBe('delete');
+    expect(del.taskId).toBe('t2');
+  });
+
+  it('un cambio sin tarea se descarta', () => {
+    const body = encodeNoteBody({ ...note, kind: 'update', patch: { title: 'x' } });
+    expect(decodeNote({ number: 1, title: 'x', body })).toBeNull();
+  });
+
+  it('sanitizePatch deja solo valores válidos', () => {
+    expect(
+      sanitizePatch(
+        { title: '  Nuevo  ', status_id: 'inventado', priority: 7, due_date: '2026-02-30', tags: ['#ok', 3], notes: 5, otro: 1 },
+        new Set(['pendiente']),
+      ),
+    ).toEqual({ title: 'Nuevo', tags: ['#ok'] });
+    expect(sanitizePatch({ due_date: null, priority: 3, status_id: 'pendiente' }, new Set(['pendiente']))).toEqual({
+      due_date: null,
+      priority: 3,
+      status_id: 'pendiente',
+    });
   });
 
   it('ignora issues que no son de Tasky', () => {
@@ -57,18 +96,19 @@ describe('buildSnapshot', () => {
     { id: 'p1', name: 'api', sort_order: 1, archived: false, created_at: '', updated_at: '' },
     { id: 'p2', name: 'viejo', sort_order: 2, archived: true, created_at: '', updated_at: '' },
   ];
-  const base = { priority: 1 as const, due_date: null, notes: 'secreto', tags: [], created_at: '', updated_at: '', completed_at: null };
+  const base = { priority: 1 as const, due_date: null, notes: 'mis notas', tags: [], created_at: '', updated_at: '', completed_at: null };
   const tasks: Task[] = [
     { ...base, id: 'a', project_id: 'p1', title: 'pendiente', status_id: 'pendiente', sort_order: 2 },
-    { ...base, id: 'b', project_id: 'p1', title: 'hecha', status_id: 'lista', sort_order: 1 },
+    { ...base, id: 'b', project_id: 'p1', title: 'hecha hace mucho', status_id: 'lista', sort_order: 1, completed_at: '2026-10-01T00:00:00Z' },
+    { ...base, id: 'r', project_id: 'p1', title: 'hecha ayer', status_id: 'lista', sort_order: 3, completed_at: '2026-11-07T10:00:00Z' },
     { ...base, id: 'c', project_id: 'p2', title: 'archivada', status_id: 'pendiente', sort_order: 1 },
   ];
 
-  it('incluye solo proyectos activos y tareas sin terminar, sin notas', () => {
-    const s = buildSnapshot({ id: 'd', name: 'mac' }, { statuses: DEFAULT_STATUSES, projects, tasks }, 'now');
+  it('incluye proyectos activos, pendientes y terminadas recientes, con sus notas', () => {
+    const s = buildSnapshot({ id: 'd', name: 'mac' }, { statuses: DEFAULT_STATUSES, projects, tasks }, '2026-11-08T12:00:00Z');
     expect(s.projects.map((p) => p.id)).toEqual(['p1']);
-    expect(s.tasks.map((t) => t.id)).toEqual(['a']);
-    expect(JSON.stringify(s)).not.toContain('secreto');
+    expect(s.tasks.map((t) => t.id)).toEqual(['a', 'r']);
+    expect(s.tasks[0].notes).toBe('mis notas');
   });
 
   it('la firma no depende de la fecha', () => {
@@ -102,14 +142,24 @@ describe('GitHubRelay', () => {
     expect(sent.title).toBe(note.text);
   });
 
-  it('lista notas pendientes de un equipo', async () => {
-    const issue = { number: 3, title: note.text, body: encodeNoteBody(note), created_at: note.createdAt };
-    const { impl, calls } = fakeFetch({
-      'GET /repos/o/r/issues?state=open&per_page=100&sort=created&direction=asc&labels=para%3Aabc123': { body: [issue] },
+  it('lista notas nuevas y cambios de un equipo, en orden de envío', async () => {
+    const created = { number: 5, title: note.text, body: encodeNoteBody(note), created_at: note.createdAt };
+    const change = {
+      number: 3,
+      title: 'editar: x',
+      body: encodeNoteBody({ ...note, kind: 'update', taskId: 't1', patch: { priority: 2 } }),
+      created_at: note.createdAt,
+    };
+    const q = '/repos/o/r/issues?state=open&per_page=100&sort=created&direction=asc&labels=';
+    const { impl } = fakeFetch({
+      [`GET ${q}para%3Aabc123`]: { body: [created] },
+      [`GET ${q}cambio%3Aabc123`]: { body: [change] },
     });
     const notes = await new GitHubRelay('o/r', 'tok', impl).listNotes('abc123');
-    expect(notes.map((n) => n.number)).toEqual([3]);
-    expect(calls[0].url).toContain('labels=para%3Aabc123');
+    expect(notes.map((n) => [n.number, n.kind])).toEqual([
+      [3, 'update'],
+      [5, 'create'],
+    ]);
   });
 
   it('sin carpeta devices devuelve lista vacía', async () => {

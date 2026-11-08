@@ -47,6 +47,8 @@ export class PhoneSync {
   private lastSignature = '';
   private lastPublishedAt = 0;
   private receivedDay = '';
+  /** Respuesta a dejar en cada nota aplicada, mientras no se haya podido cerrar. */
+  private replies = new Map<number, string>();
 
   constructor(private readonly app: AppState) {}
 
@@ -145,36 +147,61 @@ export class PhoneSync {
   private async receive() {
     const relay = this.relay!;
     const notes = await relay.listNotes(this.deviceId);
-    const arrived: string[] = [];
+    const created: string[] = [];
+    let changed = 0;
+    let deleted = 0;
+    let missing = 0;
     for (const note of notes) {
       if (this.imported.includes(note.number)) {
-        // Ya está aquí: solo falta cerrarla si antes falló (si no, es demora del listado de GitHub).
+        // Ya se aplicó: solo falta cerrarla si antes falló (si no, es demora del listado de GitHub).
         if (!this.pendingAck.includes(note.number)) continue;
       } else {
-        const where = this.app.importRemoteNote(note);
-        arrived.push(where);
+        let reply: string;
+        if (note.kind === 'update') {
+          const ok = this.app.applyRemotePatch(note.taskId!, note.patch ?? {});
+          if (ok) changed++;
+          else missing++;
+          reply = ok ? `✓ Cambio aplicado en **${this.deviceName}**.` : `La tarea ya no existe en **${this.deviceName}**; no se aplicó el cambio.`;
+        } else if (note.kind === 'delete') {
+          const ok = this.app.removeTaskRemote(note.taskId!);
+          if (ok) deleted++;
+          else missing++;
+          reply = ok ? `✓ Eliminada en **${this.deviceName}**.` : `La tarea ya no existía en **${this.deviceName}**.`;
+        } else {
+          const where = this.app.importRemoteNote(note);
+          created.push(where);
+          reply = `✓ Agregada en **${this.deviceName}** · proyecto **${where}**.`;
+        }
+        this.replies.set(note.number, reply);
         this.imported.push(note.number);
         this.pendingAck.push(note.number);
         await this.saveConfig();
       }
       try {
-        await relay.ackNote(note.number, `✓ Agregada en **${this.deviceName}**.`);
+        await relay.ackNote(note.number, this.replies.get(note.number) ?? `✓ Recibida en **${this.deviceName}**.`);
         this.pendingAck = this.pendingAck.filter((n) => n !== note.number);
+        this.replies.delete(note.number);
         await this.saveConfig();
       } catch {
         /* se reintenta en la próxima revisión */
       }
     }
-    if (arrived.length) {
+
+    const total = created.length + changed + deleted;
+    if (total) {
       const today = new Date().toDateString();
       if (this.receivedDay !== today) {
         this.receivedDay = today;
         this.receivedToday = 0;
       }
-      this.receivedToday += arrived.length;
-      const where = [...new Set(arrived)].join(', ');
-      this.app.notify(`${arrived.length === 1 ? '1 nota' : `${arrived.length} notas`} desde el celular → ${where}`);
+      this.receivedToday += total;
     }
+    const parts: string[] = [];
+    if (created.length) parts.push(`${created.length === 1 ? '1 nota nueva' : `${created.length} notas nuevas`} → ${[...new Set(created)].join(', ')}`);
+    if (changed) parts.push(changed === 1 ? '1 cambio' : `${changed} cambios`);
+    if (deleted) parts.push(deleted === 1 ? '1 eliminada' : `${deleted} eliminadas`);
+    if (missing) parts.push(missing === 1 ? '1 sobre una tarea que ya no existe' : `${missing} sobre tareas que ya no existen`);
+    if (parts.length) this.app.notify(`Desde el celular: ${parts.join(' · ')}`);
   }
 
   private async publish(force: boolean) {

@@ -48,6 +48,10 @@
     <span class="kbd">{keys('Mod+Shift+F')}</span>
   </button>
 
+  <button class="toggle settings" aria-label="Abrir ajustes" title="ajustes ({keys('Mod+,')})" onclick={() => (app.settingsOpen = true)}>
+    <Icon name="gear" size={15} />
+  </button>
+
   <button
     class="toggle"
     aria-label="Mostrar u ocultar el panel de detalle"
@@ -80,6 +84,9 @@
   }
   .toggle:hover {
     color: var(--text);
+  }
+  .toggle.settings {
+    margin-left: 4px;
   }
   .tabs {
     display: flex;

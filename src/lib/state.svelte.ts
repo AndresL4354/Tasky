@@ -5,6 +5,8 @@ import { uid } from './ids';
 import { nextSortOrder, visibleTasks } from './order';
 import { normalizeTag, parseEntry } from './parse';
 import { keys } from './platform';
+import { sanitizePatch } from './relay/notes';
+import type { TaskPatch } from './relay/types';
 import type { Priority, Project, Snapshot, SortMode, Status, Task, ThemePref } from './types';
 
 interface UiSettings {
@@ -724,6 +726,40 @@ export class AppState {
     this.tasks.push(task);
     this.saveTask(task);
     return project.name;
+  }
+
+  /** Aplica un cambio que llegó del celular. Devuelve false si la tarea ya no existe. */
+  applyRemotePatch(taskId: string, patch: TaskPatch): boolean {
+    const t = this.tasks.find((x) => x.id === taskId);
+    if (!t) return false;
+    const clean = sanitizePatch(patch, new Set(this.statuses.map((s) => s.id)));
+    const changes: Partial<Task> = {};
+    if (clean.title !== undefined && clean.title !== t.title) changes.title = clean.title;
+    if (clean.status_id !== undefined && clean.status_id !== t.status_id) changes.status_id = clean.status_id;
+    if (clean.priority !== undefined && clean.priority !== t.priority) changes.priority = clean.priority as Priority;
+    if (clean.due_date !== undefined && clean.due_date !== t.due_date) changes.due_date = clean.due_date;
+    if (clean.tags !== undefined && clean.tags.join(' ') !== t.tags.join(' ')) changes.tags = clean.tags;
+    if (clean.notes !== undefined && clean.notes !== t.notes) changes.notes = clean.notes;
+    if (Object.keys(changes).length) this.updateTask(taskId, changes, { undo: 'cambio desde el celular' });
+    return true;
+  }
+
+  /** Elimina una tarea por pedido del celular (se puede deshacer). Devuelve false si ya no existía. */
+  removeTaskRemote(taskId: string): boolean {
+    const i = this.tasks.findIndex((t) => t.id === taskId);
+    if (i < 0) return false;
+    const task = this.tasks[i];
+    this.remember('eliminar desde el celular', [taskId]);
+    const pending = this.pendingSaves.get(taskId);
+    if (pending) clearTimeout(pending);
+    this.pendingSaves.delete(taskId);
+    this.tasks.splice(i, 1);
+    if (this.selected[task.project_id] === taskId) this.selected[task.project_id] = null;
+    if (this.pickerFor === taskId) this.pickerFor = null;
+    if (this.editingTaskId === taskId) this.editingTaskId = null;
+    this.ensureSelection();
+    this.persist(this.db.deleteTasks([taskId]));
+    return true;
   }
 
   // ───────────────────────── estados

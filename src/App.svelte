@@ -29,7 +29,22 @@
     window.addEventListener('beforeunload', flush);
     window.addEventListener('blur', flush);
     void app.init().then(() => (app.ready ? phone.init() : undefined));
+
+    // Menú Tasky → Ajustes… (⌘,) en macOS.
+    let unlisten: (() => void) | undefined;
+    if (isTauri) {
+      void import('@tauri-apps/api/event').then(({ listen }) =>
+        listen('open-settings', () => {
+          if (!app.ready) return;
+          app.palette = null;
+          app.searchOpen = false;
+          app.settingsOpen = true;
+        }).then((fn) => (unlisten = fn)),
+      );
+    }
+
     return () => {
+      unlisten?.();
       mq.removeEventListener('change', onScheme);
       window.removeEventListener('beforeunload', flush);
       window.removeEventListener('blur', flush);

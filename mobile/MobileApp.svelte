@@ -7,7 +7,18 @@
   import { DemoRelay } from '../src/lib/relay/demo';
   import { GitHubRelay } from '../src/lib/relay/github';
   import { timeAgo } from '../src/lib/relay/notes';
-  import { RelayError, type DeviceSnapshot, type InboxNote, type OutgoingNote, type Relay } from '../src/lib/relay/types';
+  import {
+    RelayError,
+    type DeviceSnapshot,
+    type InboxNote,
+    type OutgoingNote,
+    type Relay,
+    type SnapshotTask,
+    type TaskPatch,
+  } from '../src/lib/relay/types';
+  import TaskEditor from './TaskEditor.svelte';
+
+  type ShownTask = SnapshotTask & { pending: boolean; deleting: boolean };
 
   const STORE_KEY = 'tasky-movil';
   /** Proyecto "bandeja" que el equipo crea solo si todavía no existe. */
@@ -105,25 +116,54 @@
   });
 
   const statusById = $derived(new Map((device?.statuses ?? []).map((s) => [s.id, s])));
+  const isDone = (statusId: string) => statusById.get(statusId)?.is_done ?? false;
 
-  const tasks = $derived(
-    device && project ? device.tasks.filter((t) => t.project_id === project.id).sort((a, b) => a.sort_order - b.sort_order) : [],
-  );
-
-  const countByProject = $derived.by(() => {
-    const m = new Map<string, number>();
-    for (const t of device?.tasks ?? []) m.set(t.project_id, (m.get(t.project_id) ?? 0) + 1);
-    return m;
-  });
-
-  const inTransit = $derived(
+  /** Todo lo que está en camino a este equipo: enviado y todavía sin enviar (sin conexión). */
+  const pending = $derived(
     device
       ? [
           ...notes.filter((n) => n.deviceId === device.id).map((n) => ({ ...n, unsent: false })),
-          ...store.outbox.filter((n) => n.deviceId === device.id).map((n) => ({ ...n, number: -1, unsent: true })),
+          ...store.outbox
+            .filter((n) => n.deviceId === device.id)
+            .map((n) => ({ ...n, kind: n.kind ?? 'create', number: -1, unsent: true })),
         ]
       : [],
   );
+
+  /** Tareas del equipo con los cambios en camino ya aplicados, para verlos al instante. */
+  const shown = $derived.by<ShownTask[]>(() => {
+    if (!device) return [];
+    const changes = pending.filter((n) => n.kind !== 'create');
+    return device.tasks
+      .map((t) => {
+        const task: ShownTask = { ...t, tags: [...t.tags], pending: false, deleting: false };
+        for (const c of changes) {
+          if (c.taskId !== t.id) continue;
+          task.pending = true;
+          if (c.kind === 'delete') task.deleting = true;
+          else Object.assign(task, c.patch);
+        }
+        return task;
+      })
+      .sort((a, b) => a.sort_order - b.sort_order);
+  });
+
+  const projectTasks = $derived(project ? shown.filter((t) => t.project_id === project.id) : []);
+  const activeTasks = $derived(projectTasks.filter((t) => !isDone(t.status_id)));
+  const doneTasks = $derived(projectTasks.filter((t) => isDone(t.status_id)));
+  const activeCount = $derived(shown.filter((t) => !isDone(t.status_id) && !t.deleting).length);
+
+  const countByProject = $derived.by(() => {
+    const m = new Map<string, number>();
+    for (const t of shown) if (!isDone(t.status_id) && !t.deleting) m.set(t.project_id, (m.get(t.project_id) ?? 0) + 1);
+    return m;
+  });
+
+  const inTransit = $derived(pending);
+
+  // Edición
+  let editing = $state<{ task: ShownTask; line: number } | null>(null);
+  let statusFor = $state<ShownTask | null>(null);
 
   const preview = $derived.by(() => {
     if (!text.trim()) return [];
@@ -152,7 +192,7 @@
     for (const n of store.outbox) {
       try {
         const number = await relay.sendNote(n);
-        notes = [...notes, { ...n, number }];
+        notes = [...notes, { ...n, kind: n.kind ?? 'create', number }];
       } catch {
         rest.push(n);
       }
@@ -196,7 +236,7 @@
     sending = true;
     try {
       const number = await relay.sendNote(note);
-      notes = [...notes, { ...note, number }];
+      notes = [...notes, { ...note, kind: 'create', number }];
       text = '';
       show(`✓ Enviada a ${device.name}`, 'ok');
     } catch (e) {
@@ -212,6 +252,62 @@
       sending = false;
       input?.focus();
     }
+  }
+
+  /** Envía un cambio o una eliminación de una tarea existente. */
+  async function sendChange(task: ShownTask, kind: 'update' | 'delete', patch?: TaskPatch) {
+    if (!relay || !device) return;
+    const projectName = device.projects.find((p) => p.id === task.project_id)?.name ?? null;
+    const title = patch?.title ?? task.title;
+    const note: OutgoingNote = {
+      kind,
+      text: `${kind === 'delete' ? 'eliminar' : 'editar'}: ${title}`.slice(0, 250),
+      deviceId: device.id,
+      deviceName: device.name,
+      projectId: task.project_id,
+      projectName,
+      createdAt: new Date().toISOString(),
+      taskId: task.id,
+      patch,
+    };
+    try {
+      const number = await relay.sendNote(note);
+      notes = [...notes, { ...note, kind, number }];
+      show(kind === 'delete' ? `✓ Se eliminará en ${device.name}` : `✓ Cambio enviado a ${device.name}`, 'ok');
+    } catch (e) {
+      if (e instanceof RelayError && e.status === 0) {
+        store.outbox = [...store.outbox, note];
+        save();
+        show('Sin conexión: el cambio se enviará cuando vuelvas a tener internet.', 'error');
+      } else {
+        show(message(e), 'error');
+      }
+    }
+    // El equipo aplica el cambio en menos de un minuto si está encendido.
+    setTimeout(() => void refresh(), 50_000);
+  }
+
+  function openEditor(task: ShownTask, line: number) {
+    if (task.deleting) return;
+    editing = { task, line };
+  }
+
+  function saveEdit(patch: TaskPatch) {
+    const t = editing?.task;
+    editing = null;
+    if (t) void sendChange(t, 'update', patch);
+  }
+
+  function deleteEdited() {
+    const t = editing?.task;
+    editing = null;
+    if (t) void sendChange(t, 'delete');
+  }
+
+  function quickStatus(statusId: string) {
+    const t = statusFor;
+    statusFor = null;
+    if (t && t.status_id !== statusId) void sendChange(t, 'update', { status_id: statusId });
   }
 
   async function connect() {
@@ -366,7 +462,7 @@
     {:else if device}
       <div class="tabs" role="tablist">
         <button role="tab" aria-selected={tab === 'anotar'} class:on={tab === 'anotar'} onclick={() => (tab = 'anotar')}>anotar</button>
-        <button role="tab" aria-selected={tab === 'ver'} class:on={tab === 'ver'} onclick={() => (tab = 'ver')}>ver · {device.tasks.length}</button>
+        <button role="tab" aria-selected={tab === 'ver'} class:on={tab === 'ver'} onclick={() => (tab = 'ver')}>ver · {activeCount}</button>
       </div>
 
       <div class="label">proyecto</div>
@@ -412,7 +508,7 @@
           {#each inTransit as n (n.unsent ? `o-${n.createdAt}` : n.number)}
             <div class="transit">
               <span class="dots" aria-hidden="true">…</span>
-              <span class="t">{parseEntry(n.text).title || n.text}</span>
+              <span class="t">{n.kind === 'create' ? parseEntry(n.text).title || n.text : n.text}</span>
               <span class="p">{n.unsent ? 'sin enviar' : (n.projectName ?? 'bandeja')}</span>
             </div>
           {:else}
@@ -421,30 +517,84 @@
         </main>
       {:else}
         <main class="list">
-          <div class="label">{device.name} · {project?.name} · actualizado {timeAgo(device.updated_at, now)}</div>
-          {#each tasks as t, i (t.id)}
+          <div class="label">
+            {device.name} · {project?.name} · actualizado {timeAgo(device.updated_at, now)} · toca una tarea para editarla
+          </div>
+          {#snippet taskRow(t: ShownTask, line: number, done: boolean)}
             {@const st = statusById.get(t.status_id)}
-            {@const due = dueInfo(t.due_date, false)}
-            <div class="task">
+            {@const due = dueInfo(t.due_date, done)}
+            <div class="task" class:done class:deleting={t.deleting}>
               <span class="prio p{t.priority}" aria-hidden="true"></span>
-              <span class="ln">{i + 1}</span>
-              <span class="body">
-                <span class="title">{t.title}</span>
-                {#each t.tags as tag (tag)}<span class="tag">{tag}</span>{/each}
-                {#if due}<span class="due {due.tone}">{due.label}</span>{/if}
-              </span>
-              <span class="status" style:color={colorVar(st?.color ?? 'muted')}>
+              <button class="open" onclick={() => openEditor(t, line)} disabled={t.deleting} aria-label="Editar: {t.title}">
+                <span class="ln">{line}</span>
+                <span class="body">
+                  <span class="title">{t.title}</span>
+                  {#each t.tags as tag (tag)}<span class="tag">{tag}</span>{/each}
+                  {#if due}<span class="due {due.tone}">{due.label}</span>{/if}
+                  {#if t.notes?.trim()}<span class="notes-mark" aria-label="tiene notas">¶</span>{/if}
+                  {#if t.deleting}<span class="pend">eliminando…</span>{:else if t.pending}<span class="pend">editando…</span>{/if}
+                </span>
+              </button>
+              <button
+                class="status"
+                style:color={colorVar(st?.color ?? 'muted')}
+                onclick={() => (statusFor = t)}
+                disabled={t.deleting}
+                aria-label="Estado: {st?.name ?? 'desconocido'}. Cambiar estado"
+              >
                 {st?.symbol ?? '?'}<span class="sname">{st?.name ?? ''}</span>
-              </span>
+              </button>
             </div>
+          {/snippet}
+
+          {#each activeTasks as t, i (t.id)}
+            {@render taskRow(t, i + 1, false)}
           {:else}
             <p class="muted">sin pendientes en este proyecto</p>
           {/each}
+
+          {#if doneTasks.length}
+            <div class="label done-label">terminadas hace poco · tócalas para reabrirlas</div>
+            {#each doneTasks as t, i (t.id)}
+              {@render taskRow(t, activeTasks.length + i + 1, true)}
+            {/each}
+          {/if}
+
+          {#if flash}<p class="flash {flash.tone}" role="status">{flash.text}</p>{/if}
         </main>
       {/if}
     {/if}
   {/if}
 </div>
+
+{#if editing && device}
+  <TaskEditor
+    task={editing.task}
+    line={editing.line}
+    projectName={device.projects.find((p) => p.id === editing!.task.project_id)?.name ?? ''}
+    statuses={device.statuses}
+    onsave={saveEdit}
+    ondelete={deleteEdited}
+    onclose={() => (editing = null)}
+  />
+{/if}
+
+{#if statusFor && device}
+  <div class="sheet-backdrop">
+    <button class="scrim" aria-label="Cerrar" tabindex="-1" onclick={() => (statusFor = null)}></button>
+    <div class="status-sheet" role="dialog" aria-modal="true" aria-label="Cambiar estado">
+      <p class="sheet-title">{statusFor.title}</p>
+      {#each device.statuses as s (s.id)}
+        <button class="status-option" class:on={s.id === statusFor.status_id} onclick={() => quickStatus(s.id)}>
+          <span class="sym" style:color={colorVar(s.color)}>{s.symbol}</span>
+          <span class="name">{s.name}</span>
+          {#if s.id === statusFor.status_id}<span class="muted">actual</span>{/if}
+        </button>
+      {/each}
+      <button class="status-option cancel" onclick={() => (statusFor = null)}>cancelar</button>
+    </div>
+  </div>
+{/if}
 
 <style>
   :global(html),
@@ -715,11 +865,104 @@
   }
   .task {
     display: grid;
-    grid-template-columns: 3px 2.4ch minmax(0, 1fr) auto;
+    grid-template-columns: 3px minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: stretch;
+    border-bottom: 1px solid var(--hair);
+  }
+  .task.done {
+    background: color-mix(in srgb, var(--c-green) 11%, transparent);
+  }
+  .task.deleting .title {
+    text-decoration: line-through;
+    color: var(--muted);
+  }
+  .open {
+    display: flex;
     gap: 10px;
     align-items: baseline;
-    padding: 8px 0;
-    border-bottom: 1px solid var(--hair);
+    min-width: 0;
+    padding: 10px 0;
+    text-align: left;
+  }
+  .open:active {
+    background: var(--hover);
+  }
+  .open:disabled,
+  .task .status:disabled {
+    opacity: 1;
+  }
+  .ln {
+    flex: none;
+    width: 2.4ch;
+  }
+  .pend {
+    color: var(--c-yellow);
+    font-size: 0.82em;
+  }
+  .notes-mark {
+    color: var(--muted);
+  }
+  .done-label {
+    margin-top: 22px;
+  }
+  .sheet-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+  }
+  .scrim {
+    position: absolute;
+    inset: 0;
+    background: var(--scrim);
+  }
+  .status-sheet {
+    position: relative;
+    width: 100%;
+    max-width: 640px;
+    padding: 12px 12px calc(env(safe-area-inset-bottom) + 12px);
+    background: var(--pop);
+    border: 1px solid var(--border);
+    border-bottom: 0;
+    border-radius: 16px 16px 0 0;
+  }
+  .sheet-title {
+    margin: 4px 8px 10px;
+    color: var(--muted);
+    font-size: 0.88em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .status-option {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 48px;
+    padding: 0 12px;
+    border-radius: 10px;
+    color: var(--text);
+    text-align: left;
+  }
+  .status-option.on {
+    background: var(--line);
+  }
+  .status-option .sym {
+    width: 1.2em;
+    text-align: center;
+  }
+  .status-option .name {
+    flex: 1;
+  }
+  .status-option.cancel {
+    justify-content: center;
+    margin-top: 6px;
+    color: var(--muted);
+    border: 1px solid var(--border);
   }
   .prio {
     align-self: stretch;
@@ -759,7 +1002,10 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    max-width: 9ch;
+    justify-content: center;
+    min-width: 48px;
+    max-width: 10ch;
+    padding: 8px 2px;
     line-height: 1.2;
     text-align: center;
   }

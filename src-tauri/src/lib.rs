@@ -136,6 +136,8 @@ fn build_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
         &[
             &PredefinedMenuItem::about(app, Some("Acerca de Tasky"), None)?,
             &PredefinedMenuItem::separator(app)?,
+            &MenuItem::with_id(app, "settings", "Ajustes…", true, Some("CmdOrCtrl+,"))?,
+            &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::hide(app, Some("Ocultar Tasky"))?,
             &PredefinedMenuItem::hide_others(app, Some("Ocultar otros"))?,
             &PredefinedMenuItem::show_all(app, Some("Mostrar todo"))?,
@@ -185,12 +187,17 @@ pub fn run() {
             {
                 let menu = build_menu(app.handle())?;
                 app.set_menu(menu)?;
-                app.on_menu_event(|app, event| {
-                    if event.id() == "close-window" {
+                app.on_menu_event(|app, event| match event.id().as_ref() {
+                    "close-window" => {
                         if let Some(w) = app.get_webview_window("main") {
                             let _ = w.close();
                         }
                     }
+                    "settings" => {
+                        use tauri::Emitter;
+                        let _ = app.emit("open-settings", ());
+                    }
+                    _ => {}
                 });
             }
             Ok(())

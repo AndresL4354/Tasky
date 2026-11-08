@@ -42,5 +42,27 @@ describe.skipIf(!token)('GitHubRelay (en vivo)', () => {
       if (stillOpen) await new Promise((r) => setTimeout(r, 2000));
     }
     expect(stillOpen).toBe(false);
-  }, 60_000);
+
+    // Un cambio viaja con otra etiqueta y conserva el parche.
+    const change = await relay.sendNote({
+      kind: 'update',
+      text: 'editar: prueba automática',
+      deviceId: device.id,
+      deviceName: device.name,
+      projectId: null,
+      projectName: null,
+      createdAt: new Date().toISOString(),
+      taskId: 'tarea-de-prueba',
+      patch: { status_id: 'lista', notes: 'nota con --> y acentos ñ' },
+    });
+    let update;
+    for (let i = 0; i < 10 && !update; i++) {
+      update = (await relay.listNotes(device.id)).find((n) => n.number === change);
+      if (!update) await new Promise((r) => setTimeout(r, 2000));
+    }
+    expect(update?.kind).toBe('update');
+    expect(update?.taskId).toBe('tarea-de-prueba');
+    expect(update?.patch).toEqual({ status_id: 'lista', notes: 'nota con --> y acentos ñ' });
+    await relay.ackNote(change, 'Prueba automática: cambio recibido y cerrado.');
+  }, 120_000);
 });
